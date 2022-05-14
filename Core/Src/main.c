@@ -56,9 +56,9 @@ static void MX_USART2_UART_Init(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
+#define AX12_Transmit(a) _AX12_Transmit( a, sizeof(a)-1 )
 
-
-void AX12_Transmit(uint8_t * data, uint8_t length){
+void _AX12_Transmit(uint8_t * data, uint8_t length){
 
   uint8_t sum=0;
   for (uint8_t i=2; i<length; i++){
@@ -68,6 +68,31 @@ void AX12_Transmit(uint8_t * data, uint8_t length){
   HAL_UART_Transmit(&huart2, data, length+1, 100);
 }
 
+void AX12_TorqueEnable(){
+  uint8_t torqueEnable[] = { 0xFF, 0xFF, 0xFE, 0x04, 0x03, 0x18, 0x01, 0 };
+  AX12_Transmit( torqueEnable );
+}
+
+void AX12_SetSlidePos(uint8_t id, uint16_t position){
+
+  uint16_t antipos = 0x3FF - position;
+
+  uint8_t setPosition[] = { 0xFF, 0xFF, 0xFE,
+      0x0A, // Length
+      0x83, // instruction sync write
+      0x1E, // param 1
+      0x02, // length of data
+      id,
+      position & 0xFF,
+      position >> 8,
+      id+1,
+      antipos & 0xFF,
+      antipos >> 8,
+      0
+  };
+
+  AX12_Transmit(setPosition);
+}
 
 
 /* USER CODE END 0 */
@@ -106,19 +131,13 @@ int main(void)
   HAL_Delay(1000);
 
 
-  uint8_t id = 3;
-
-  uint8_t setID[] = { 0xFF, 0xFF, 0xFE, 0x04, 0x03, 0x03, id, 0 };
-
+  //uint8_t setID[] = { 0xFF, 0xFF, 0xFE, 0x04, 0x03, 0x03, id, 0 };
+  //uint8_t ledOn[] = { 0xFF, 0xFF, id, 0x04, 0x03, 0x19, 0x01, 0 };
 
 
-  AX12_Transmit(setID, sizeof(setID)-1 );
+  AX12_TorqueEnable();
 
-  uint8_t ledOn[] = { 0xFF, 0xFF, id, 0x04, 0x03, 0x19, 0x01, 0 };
-  uint8_t ledOff[] = { 0xFF, 0xFF, id, 0x04, 0x03, 0x19, 0x00, 0 };
-
-
-
+  AX12_SetSlidePos(3, 0);
 
   /* USER CODE END 2 */
 
@@ -128,15 +147,12 @@ int main(void)
   {
     /* USER CODE END WHILE */
 
-    for (uint8_t i=0;i<id;i++){
-      AX12_Transmit(ledOn, sizeof(ledOn)-1 );
-      HAL_Delay(300);
-      AX12_Transmit(ledOff, sizeof(ledOn)-1 );
-      HAL_Delay(300);
-    }
+
 
     HAL_Delay(1000);
-
+    AX12_SetSlidePos(3, 100);
+    HAL_Delay(1000);
+    AX12_SetSlidePos(3, 50);
 
 
     /* USER CODE BEGIN 3 */
