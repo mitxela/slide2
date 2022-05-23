@@ -63,6 +63,14 @@ static void MX_USART1_UART_Init(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
+void hang_error(){
+  while (1){
+    HAL_Delay(200);
+    HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+  }
+}
+
+
 #define AX12_Transmit(a) _AX12_Transmit( a, sizeof(a)-1 )
 
 void _AX12_Transmit(uint8_t * data, uint8_t length){
@@ -82,6 +90,8 @@ void AX12_TorqueEnable(){
 
 void AX12_SetSlidePos(uint8_t id, uint16_t position){
 
+  if (position > 0x330 || position < 0x200) hang_error();
+
   uint16_t antipos = 0x3FF - position;
 
   uint8_t setPosition[] = { 0xFF, 0xFF, 0xFE,
@@ -89,10 +99,10 @@ void AX12_SetSlidePos(uint8_t id, uint16_t position){
       0x83, // instruction sync write
       0x1E, // param 1
       0x02, // length of data
-      id,
+      id+1,
       position & 0xFF,
       position >> 8,
-      id+1,
+      id,
       antipos & 0xFF,
       antipos >> 8,
       0
@@ -100,6 +110,7 @@ void AX12_SetSlidePos(uint8_t id, uint16_t position){
 
   AX12_Transmit(setPosition);
 }
+
 
 
 /* USER CODE END 0 */
@@ -158,14 +169,18 @@ int main(void)
   htim1.Instance->CCR3 = 0;
   htim1.Instance->CCR4 = 0;
 
-  // TIM2 for Fan Motor PWM
+  // TIM3 for Fan Motor PWM
   HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
   HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_2);
   HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_3);
   HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_4);
 
+  htim3.Instance->ARR = 5000;
+
   AX12_TorqueEnable();
-  AX12_SetSlidePos(3, 0);
+
+  HAL_Delay(1000);
+  AX12_SetSlidePos(5, 0x200);
 
   /* USER CODE END 2 */
 
@@ -179,11 +194,17 @@ int main(void)
 
 
 
-    htim3.Instance->CCR1 = 1000;
-    htim3.Instance->CCR2 = 1000;
-    htim3.Instance->CCR3 = 1000;
-    htim3.Instance->CCR4 = 1000;
+    htim3.Instance->CCR1 = 4000; //PA6
+    htim3.Instance->CCR2 = 4000; //PA7
+    htim3.Instance->CCR3 = 4000; //PB0
+    htim3.Instance->CCR4 = 4000; //PB1
 
+
+    //HAL_Delay(1000);
+    //AX12_SetSlidePos(5, 0x100);
+
+    //HAL_Delay(1000);
+    //AX12_SetSlidePos(5, 0);
 
 
   }
@@ -430,7 +451,7 @@ static void MX_USART2_UART_Init(void)
 
   /* USER CODE END USART2_Init 1 */
   huart2.Instance = USART2;
-  huart2.Init.BaudRate = 115200;
+  huart2.Init.BaudRate = 1000000;
   huart2.Init.WordLength = UART_WORDLENGTH_8B;
   huart2.Init.StopBits = UART_STOPBITS_1;
   huart2.Init.Parity = UART_PARITY_NONE;
@@ -454,11 +475,23 @@ static void MX_USART2_UART_Init(void)
   */
 static void MX_GPIO_Init(void)
 {
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
 
   /* GPIO Ports Clock Enable */
+  __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOH_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin : PC13 */
+  GPIO_InitStruct.Pin = GPIO_PIN_13;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
 }
 
