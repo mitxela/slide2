@@ -42,7 +42,6 @@
 TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim3;
 
-UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
@@ -111,6 +110,71 @@ void AX12_SetSlidePos(uint8_t id, uint16_t position){
   AX12_Transmit(setPosition);
 }
 
+void USART1_IRQHandler(void) {
+  static uint8_t asdf=0;
+  static uint8_t bytenumber=0;
+
+  uint8_t i = LL_USART_ReceiveData8(USART1);
+
+  if (bytenumber==0) {
+    asdf=i;
+    bytenumber=1;
+  } else {
+
+    AX12_SetSlidePos( 5, 0x200 + i + asdf );
+    bytenumber=0;
+  }
+}
+
+
+/*
+void USART1_IRQHandler(void) {
+  static uint8_t status=0;
+  static uint8_t bytenumber=0;
+  static uint8_t bytetwo =0;
+
+  uint8_t i = LL_USART_ReceiveData8(USART1);
+
+  HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+
+  if (i==0xFF) NVIC_SystemReset();
+  if (i>=0xF8) return; //system real-time
+
+  if (i & 0x80) {
+    status = i;
+    bytenumber = 1;
+  } else {
+    uint8_t chan = status&0x0F;
+    if (bytenumber == 1) {
+      // check two-byte messages...
+      // switch (status&0xF0){}
+
+      bytetwo=i;
+      bytenumber=2;
+    } else if (bytenumber ==2) {
+      switch (status&0xF0) {
+
+      case 0x90: //Note on
+        if (i == 0) noteOff(bytetwo, chan);
+        else noteOn(bytetwo, i, chan);
+        break;
+
+      case 0x80: //Note off
+        noteOff(bytetwo, chan);
+        break;
+
+      case 0xE0: //Pitch bend
+        //channels[chan].bend = channels[chan].pbSensitivity * (((i<<7) + bytetwo) - 0x2000);
+        break;
+
+      }
+      bytenumber = 1; //running status
+    }
+  }
+}
+*/
+
+
 
 
 /* USER CODE END 0 */
@@ -149,7 +213,9 @@ int main(void)
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
 
-  HAL_Delay(1000);
+
+  LL_USART_EnableIT_RXNE(USART1);
+
 
 
   //uint8_t setID[] = { 0xFF, 0xFF, 0xFE, 0x04, 0x03, 0x03, id, 0 };
@@ -177,10 +243,16 @@ int main(void)
 
   htim3.Instance->ARR = 5000;
 
-  AX12_TorqueEnable();
+  htim3.Instance->CCR1 = 5000; //PA6
+  htim3.Instance->CCR2 = 5000; //PA7
+  htim3.Instance->CCR3 = 5000; //PB0
+  htim3.Instance->CCR4 = 5000; //PB1
 
+
+  AX12_TorqueEnable();
   HAL_Delay(1000);
   AX12_SetSlidePos(5, 0x200);
+
 
   /* USER CODE END 2 */
 
@@ -194,10 +266,7 @@ int main(void)
 
 
 
-    htim3.Instance->CCR1 = 4000; //PA6
-    htim3.Instance->CCR2 = 4000; //PA7
-    htim3.Instance->CCR3 = 4000; //PB0
-    htim3.Instance->CCR4 = 4000; //PB1
+
 
 
     //HAL_Delay(1000);
@@ -414,21 +483,43 @@ static void MX_USART1_UART_Init(void)
 
   /* USER CODE END USART1_Init 0 */
 
+  LL_USART_InitTypeDef USART_InitStruct = {0};
+
+  LL_GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+  /* Peripheral clock enable */
+  LL_APB2_GRP1_EnableClock(LL_APB2_GRP1_PERIPH_USART1);
+
+  LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_GPIOB);
+  /**USART1 GPIO Configuration
+  PB6   ------> USART1_TX
+  PB7   ------> USART1_RX
+  */
+  GPIO_InitStruct.Pin = LL_GPIO_PIN_6|LL_GPIO_PIN_7;
+  GPIO_InitStruct.Mode = LL_GPIO_MODE_ALTERNATE;
+  GPIO_InitStruct.Speed = LL_GPIO_SPEED_FREQ_VERY_HIGH;
+  GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
+  GPIO_InitStruct.Pull = LL_GPIO_PULL_NO;
+  GPIO_InitStruct.Alternate = LL_GPIO_AF_7;
+  LL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /* USART1 interrupt Init */
+  NVIC_SetPriority(USART1_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(),0, 0));
+  NVIC_EnableIRQ(USART1_IRQn);
+
   /* USER CODE BEGIN USART1_Init 1 */
 
   /* USER CODE END USART1_Init 1 */
-  huart1.Instance = USART1;
-  huart1.Init.BaudRate = 31250;
-  huart1.Init.WordLength = UART_WORDLENGTH_8B;
-  huart1.Init.StopBits = UART_STOPBITS_1;
-  huart1.Init.Parity = UART_PARITY_NONE;
-  huart1.Init.Mode = UART_MODE_RX;
-  huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart1.Init.OverSampling = UART_OVERSAMPLING_16;
-  if (HAL_UART_Init(&huart1) != HAL_OK)
-  {
-    Error_Handler();
-  }
+  USART_InitStruct.BaudRate = 31250;
+  USART_InitStruct.DataWidth = LL_USART_DATAWIDTH_8B;
+  USART_InitStruct.StopBits = LL_USART_STOPBITS_1;
+  USART_InitStruct.Parity = LL_USART_PARITY_NONE;
+  USART_InitStruct.TransferDirection = LL_USART_DIRECTION_RX;
+  USART_InitStruct.HardwareFlowControl = LL_USART_HWCONTROL_NONE;
+  USART_InitStruct.OverSampling = LL_USART_OVERSAMPLING_16;
+  LL_USART_Init(USART1, &USART_InitStruct);
+  LL_USART_ConfigAsyncMode(USART1);
+  LL_USART_Enable(USART1);
   /* USER CODE BEGIN USART1_Init 2 */
 
   /* USER CODE END USART1_Init 2 */
