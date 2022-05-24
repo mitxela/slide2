@@ -46,6 +46,8 @@ UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
 
+uint8_t calibrateMode = 1;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -89,7 +91,7 @@ void AX12_TorqueEnable(){
 
 void AX12_SetSlidePos(uint8_t id, uint16_t position){
 
-  if (position > 0x330 || position < 0x200) hang_error();
+  if (position > 0x310 || position < 0x230) hang_error();
 
   uint16_t antipos = 0x3FF - position;
 
@@ -110,32 +112,14 @@ void AX12_SetSlidePos(uint8_t id, uint16_t position){
   AX12_Transmit(setPosition);
 }
 
-void USART1_IRQHandler(void) {
-  static uint8_t asdf=0;
-  static uint8_t bytenumber=0;
+//void setValveServo(uint16_t pos){
+//  *(&(htim1.Instance->CCR1) + 4) = pos;
+//}
 
-  uint8_t i = LL_USART_ReceiveData8(USART1);
-
-  if (bytenumber==0) {
-    asdf=i;
-    bytenumber=1;
-  } else {
-
-    AX12_SetSlidePos( 5, 0x200 + i + asdf );
-    bytenumber=0;
-  }
-}
-
-
-/*
-void USART1_IRQHandler(void) {
+void processMIDI(uint8_t i) {
   static uint8_t status=0;
   static uint8_t bytenumber=0;
   static uint8_t bytetwo =0;
-
-  uint8_t i = LL_USART_ReceiveData8(USART1);
-
-  HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
 
   if (i==0xFF) NVIC_SystemReset();
   if (i>=0xF8) return; //system real-time
@@ -155,12 +139,12 @@ void USART1_IRQHandler(void) {
       switch (status&0xF0) {
 
       case 0x90: //Note on
-        if (i == 0) noteOff(bytetwo, chan);
-        else noteOn(bytetwo, i, chan);
+        //if (i == 0) noteOff(bytetwo, chan);
+        //else noteOn(bytetwo, i, chan);
         break;
 
       case 0x80: //Note off
-        noteOff(bytetwo, chan);
+        //noteOff(bytetwo, chan);
         break;
 
       case 0xE0: //Pitch bend
@@ -172,8 +156,42 @@ void USART1_IRQHandler(void) {
     }
   }
 }
-*/
 
+void processCalByte(uint8_t i) {
+  static uint8_t buf[20];
+  static uint8_t p=0;
+
+  buf[p++]=i;
+  if (p>=10) {
+
+    p=0;
+    if (buf[0]!=0x55 && buf[1]!=0xAA) return;
+
+    htim1.Instance->CCR1 = (buf[2]<<8)+buf[3];
+    htim1.Instance->CCR2 = (buf[4]<<8)+buf[5];
+    htim1.Instance->CCR3 = (buf[6]<<8)+buf[7];
+    htim1.Instance->CCR4 = (buf[8]<<8)+buf[9];
+
+    //AX12_SetSlidePos( 5, 0x230 + i );
+
+  }
+
+}
+
+void USART1_IRQHandler(void) {
+  uint8_t i = LL_USART_ReceiveData8(USART1);
+
+  HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+  //hang_error();
+
+
+  if (calibrateMode) {
+    processCalByte(i);
+  } else {
+    //processMIDI(i);
+  }
+
+}
 
 
 
@@ -230,10 +248,10 @@ int main(void)
 
   htim1.Instance->ARR = 10000;
 
-  htim1.Instance->CCR1 = 0; // 1000 to 2000 ? For 1ms to 2ms
-  htim1.Instance->CCR2 = 0;
-  htim1.Instance->CCR3 = 0;
-  htim1.Instance->CCR4 = 0;
+  htim1.Instance->CCR1 = 1000; // 1000 to 2000 ? For 1ms to 2ms
+  htim1.Instance->CCR2 = 1000;
+  htim1.Instance->CCR3 = 1000;
+  htim1.Instance->CCR4 = 1000;
 
   // TIM3 for Fan Motor PWM
   HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
@@ -251,8 +269,10 @@ int main(void)
 
   AX12_TorqueEnable();
   HAL_Delay(1000);
-  AX12_SetSlidePos(5, 0x200);
+  AX12_SetSlidePos(5, 0x300);
 
+
+ // setValveServo(1500);
 
   /* USER CODE END 2 */
 
