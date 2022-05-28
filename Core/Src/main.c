@@ -48,6 +48,8 @@ UART_HandleTypeDef huart2;
 
 uint8_t calibrateMode = 1;
 
+uint8_t timeout = 0;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -71,6 +73,12 @@ void hang_error(){
   }
 }
 
+void flash(){
+  for (uint8_t i=0;i<10;i++) {
+    HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+    HAL_Delay(100);
+  }
+}
 
 #define AX12_Transmit(a) _AX12_Transmit( a, sizeof(a)-1 )
 
@@ -91,7 +99,7 @@ void AX12_TorqueEnable(){
 
 void AX12_SetSlidePos(uint8_t id, uint16_t position){
 
-  if (position > 0x310 || position < 0x230) hang_error();
+  if (position > 0x330 || position < 0x230) return;//hang_error();
 
   uint16_t antipos = 0x3FF - position;
 
@@ -157,23 +165,43 @@ void processMIDI(uint8_t i) {
   }
 }
 
+#define set_valve_servo(n, x) \
+  htim1.Instance->CCR ## n = x
+
+#define set_fan_speed(n, x) \
+  htim3.Instance->CCR ## n = 5000 - x
+
 void processCalByte(uint8_t i) {
-  static uint8_t buf[20];
+  static uint8_t buf[32];
   static uint8_t p=0;
 
   buf[p++]=i;
-  if (p>=10) {
+  if (buf[0]!=0xFF) {
+    p=0;
+    return;
+  }
+
+  if (p>=22) {
 
     p=0;
-    if (buf[0]!=0x55 && buf[1]!=0xAA) return;
+    if (buf[1]!=0xAA) return;
 
-    htim1.Instance->CCR1 = (buf[2]<<8)+buf[3];
-    htim1.Instance->CCR2 = (buf[4]<<8)+buf[5];
-    htim1.Instance->CCR3 = (buf[6]<<8)+buf[7];
-    htim1.Instance->CCR4 = (buf[8]<<8)+buf[9];
+    set_valve_servo( 1, (buf[2]<<8)+buf[3]);
+    set_valve_servo( 2, (buf[4]<<8)+buf[5]);
+    set_valve_servo( 3, (buf[6]<<8)+buf[7]);
+    set_valve_servo( 4, (buf[8]<<8)+buf[9]);
 
-    //AX12_SetSlidePos( 5, 0x230 + i );
+    AX12_SetSlidePos( 1, 0x230 + buf[10] );
+    AX12_SetSlidePos( 3, 0x230 + buf[11] );
+    AX12_SetSlidePos( 5, 0x230 + buf[12] );
+    AX12_SetSlidePos( 7, 0x230 + buf[13] );
 
+    set_fan_speed(1, (buf[14]<<8)+buf[15]);
+    set_fan_speed(2, (buf[16]<<8)+buf[17]);
+    set_fan_speed(3, (buf[18]<<8)+buf[19]);
+    set_fan_speed(4, (buf[20]<<8)+buf[21]);
+
+    timeout=20;
   }
 
 }
@@ -193,6 +221,31 @@ void USART1_IRQHandler(void) {
 
 }
 
+void EXTI9_5_IRQHandler(void)
+{
+  // MIDI panic / home servos
+
+  // Turn off all fans, close valves, set servos to up-down-up-down pattern
+  // zero all note memory
+
+  set_fan_speed(1, 0);
+  set_fan_speed(2, 0);
+  set_fan_speed(3, 0);
+  set_fan_speed(4, 0);
+
+  set_valve_servo(1, 0); // should send them to home pos first
+  set_valve_servo(2, 0);
+  set_valve_servo(3, 0);
+  set_valve_servo(4, 0);
+
+  AX12_SetSlidePos( 1, 0x230 + 45 ); //should do this on release
+  AX12_SetSlidePos( 3, 0x230 + 145 );
+  AX12_SetSlidePos( 5, 0x230 + 45 );
+  AX12_SetSlidePos( 7, 0x230 + 145 );
+
+  __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_9);
+
+}
 
 
 /* USER CODE END 0 */
@@ -248,10 +301,10 @@ int main(void)
 
   htim1.Instance->ARR = 10000;
 
-  htim1.Instance->CCR1 = 1000; // 1000 to 2000 ? For 1ms to 2ms
-  htim1.Instance->CCR2 = 1000;
-  htim1.Instance->CCR3 = 1000;
-  htim1.Instance->CCR4 = 1000;
+  htim1.Instance->CCR1 = 0; // 1000 to 2000 ? For 1ms to 2ms
+  htim1.Instance->CCR2 = 0;
+  htim1.Instance->CCR3 = 0;
+  htim1.Instance->CCR4 = 0;
 
   // TIM3 for Fan Motor PWM
   HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
@@ -266,13 +319,13 @@ int main(void)
   htim3.Instance->CCR3 = 5000; //PB0
   htim3.Instance->CCR4 = 5000; //PB1
 
-
   AX12_TorqueEnable();
-  HAL_Delay(1000);
-  AX12_SetSlidePos(5, 0x300);
 
 
- // setValveServo(1500);
+  if (HAL_GPIO_ReadPin( GPIOB, GPIO_PIN_9)) { // pulled high when not pressed
+    //calibrateMode = 0;
+  }
+
 
   /* USER CODE END 2 */
 
@@ -285,15 +338,22 @@ int main(void)
     /* USER CODE BEGIN 3 */
 
 
+    if (timeout>0) {
+      HAL_Delay(100);
 
+      if (--timeout==0) {
+        htim3.Instance->CCR1 = 5000; //PA6
+        htim3.Instance->CCR2 = 5000; //PA7
+        htim3.Instance->CCR3 = 5000; //PB0
+        htim3.Instance->CCR4 = 5000; //PB1
 
+        set_valve_servo( 1, 0);
+        set_valve_servo( 2, 0);
+        set_valve_servo( 3, 0);
+        set_valve_servo( 4, 0);
 
-
-    //HAL_Delay(1000);
-    //AX12_SetSlidePos(5, 0x100);
-
-    //HAL_Delay(1000);
-    //AX12_SetSlidePos(5, 0);
+      }
+    }
 
 
   }
@@ -603,6 +663,16 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : PB9 */
+  GPIO_InitStruct.Pin = GPIO_PIN_9;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI9_5_IRQn, 1, 0);
+  HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
 
 }
 
