@@ -21,7 +21,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "tables.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -173,35 +173,38 @@ void processMIDI(uint8_t i) {
 
 void processCalByte(uint8_t i) {
   static uint8_t buf[32];
-  static uint8_t p=0;
+  static uint8_t p=0, sum=0;
 
   buf[p++]=i;
   if (buf[0]!=0xFF) {
     p=0;
+    sum=0;
     return;
   }
 
-  if (p>=22) {
+  sum += i;
+  if (p>=23) {
+    if (buf[1]==0xAA && sum==0xFF){
 
+      set_valve_servo( 1, (buf[2]<<8)+buf[3]);
+      set_valve_servo( 2, (buf[4]<<8)+buf[5]);
+      set_valve_servo( 3, (buf[6]<<8)+buf[7]);
+      set_valve_servo( 4, (buf[8]<<8)+buf[9]);
+
+      AX12_SetSlidePos( 1, 0x230 + buf[10] );
+      AX12_SetSlidePos( 3, 0x230 + buf[11] );
+      AX12_SetSlidePos( 5, 0x230 + buf[12] );
+      AX12_SetSlidePos( 7, 0x230 + buf[13] );
+
+      set_fan_speed(1, (buf[14]<<8)+buf[15]);
+      set_fan_speed(2, (buf[16]<<8)+buf[17]);
+      set_fan_speed(3, (buf[18]<<8)+buf[19]);
+      set_fan_speed(4, (buf[20]<<8)+buf[21]);
+
+      timeout=20;
+    }
     p=0;
-    if (buf[1]!=0xAA) return;
-
-    set_valve_servo( 1, (buf[2]<<8)+buf[3]);
-    set_valve_servo( 2, (buf[4]<<8)+buf[5]);
-    set_valve_servo( 3, (buf[6]<<8)+buf[7]);
-    set_valve_servo( 4, (buf[8]<<8)+buf[9]);
-
-    AX12_SetSlidePos( 1, 0x230 + buf[10] );
-    AX12_SetSlidePos( 3, 0x230 + buf[11] );
-    AX12_SetSlidePos( 5, 0x230 + buf[12] );
-    AX12_SetSlidePos( 7, 0x230 + buf[13] );
-
-    set_fan_speed(1, (buf[14]<<8)+buf[15]);
-    set_fan_speed(2, (buf[16]<<8)+buf[17]);
-    set_fan_speed(3, (buf[18]<<8)+buf[19]);
-    set_fan_speed(4, (buf[20]<<8)+buf[21]);
-
-    timeout=20;
+    sum=0;
   }
 
 }
@@ -233,12 +236,15 @@ void EXTI9_5_IRQHandler(void)
   set_fan_speed(3, 0);
   set_fan_speed(4, 0);
 
+  // needs debounce
+  //while (!HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_9)); // wait for release
+
   set_valve_servo(1, 0); // should send them to home pos first
   set_valve_servo(2, 0);
   set_valve_servo(3, 0);
   set_valve_servo(4, 0);
 
-  AX12_SetSlidePos( 1, 0x230 + 45 ); //should do this on release
+  AX12_SetSlidePos( 1, 0x230 + 45 );
   AX12_SetSlidePos( 3, 0x230 + 145 );
   AX12_SetSlidePos( 5, 0x230 + 45 );
   AX12_SetSlidePos( 7, 0x230 + 145 );
@@ -322,7 +328,7 @@ int main(void)
   AX12_TorqueEnable();
 
 
-  if (HAL_GPIO_ReadPin( GPIOB, GPIO_PIN_9)) { // pulled high when not pressed
+  if (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_9)) { // pulled high when not pressed
     //calibrateMode = 0;
   }
 
