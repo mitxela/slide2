@@ -1,16 +1,23 @@
 
-uint16_t valve_open[4] = {
-    1300,
-    1300,
-    1300,
-    1300
+const uint16_t valve_open[4] = {
+    1250,
+    1200,
+    1310,
+    1150
 };
 
-uint16_t valve_closed[4] = {
+const uint16_t valve_closed[4] = {
     1150,
-    1300,
-    1300,
-    1300
+    1100,
+    1220,
+    1050
+};
+
+const uint16_t arm_limit[4] = {
+    5,
+    5,
+    5,
+    5
 };
 
 const struct lut {

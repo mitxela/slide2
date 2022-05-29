@@ -92,14 +92,23 @@ void _AX12_Transmit(uint8_t * data, uint8_t length){
   HAL_UART_Transmit(&huart2, data, length+1, 100);
 }
 
+uint8_t AX12_TorqueStatus = 0;
+
 void AX12_TorqueEnable(){
   uint8_t torqueEnable[] = { 0xFF, 0xFF, 0xFE, 0x04, 0x03, 0x18, 0x01, 0 };
   AX12_Transmit( torqueEnable );
+  AX12_TorqueStatus=1;
+}
+void AX12_TorqueDisable(){
+  uint8_t torqueEnable[] = { 0xFF, 0xFF, 0xFE, 0x04, 0x03, 0x18, 0x00, 0 };
+  AX12_Transmit( torqueEnable );
+  AX12_TorqueStatus=0;
 }
 
 void AX12_SetSlidePos(uint8_t id, uint16_t position){
 
   if (position > 0x330 || position < 0x230) return;//hang_error();
+  if (!AX12_TorqueStatus) AX12_TorqueEnable();
 
   uint16_t antipos = 0x3FF - position;
 
@@ -166,10 +175,23 @@ void processMIDI(uint8_t i) {
 }
 
 #define set_valve_servo(n, x) \
-  htim1.Instance->CCR ## n = x
+  htim1.Instance->CCR ## n = (x)
 
-#define set_fan_speed(n, x) \
-  htim3.Instance->CCR ## n = 5000 - x
+#define _set_fan_speed(n, x) \
+  htim3.Instance->CCR ## n = 5000 - (x)
+
+void set_fan_speed(uint8_t n, uint16_t x){
+  //uint32_t a = &(htim3.Instance->CCR1);
+
+  //*(&(htim3.Instance->CCR1) +4*n) = 5000 - x;
+
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, GPIO_PIN_SET);
+
+  if (n==1) htim3.Instance->CCR1 = 5000 - x;
+  else if (n==2) htim3.Instance->CCR2 = 5000 - x;
+  else if (n==3) htim3.Instance->CCR3 = 5000 - x;
+  else if (n==4) htim3.Instance->CCR4 = 5000 - x;
+}
 
 void processCalByte(uint8_t i) {
   static uint8_t buf[32];
@@ -201,7 +223,7 @@ void processCalByte(uint8_t i) {
       set_fan_speed(3, (buf[18]<<8)+buf[19]);
       set_fan_speed(4, (buf[20]<<8)+buf[21]);
 
-      timeout=20;
+      timeout=100;
     }
     p=0;
     sum=0;
@@ -236,10 +258,14 @@ void EXTI9_5_IRQHandler(void)
   set_fan_speed(3, 0);
   set_fan_speed(4, 0);
 
-  // needs debounce
-  //while (!HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_9)); // wait for release
+  set_valve_servo(1, valve_closed[0]);
+  set_valve_servo(2, valve_closed[1]);
+  set_valve_servo(3, valve_closed[2]);
+  set_valve_servo(4, valve_closed[3]);
 
-  set_valve_servo(1, 0); // should send them to home pos first
+  while (!HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_9)); // wait for release
+
+  set_valve_servo(1, 0);
   set_valve_servo(2, 0);
   set_valve_servo(3, 0);
   set_valve_servo(4, 0);
@@ -325,7 +351,9 @@ int main(void)
   htim3.Instance->CCR3 = 5000; //PB0
   htim3.Instance->CCR4 = 5000; //PB1
 
-  AX12_TorqueEnable();
+  //AX12_TorqueEnable();
+
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, GPIO_PIN_RESET);
 
 
   if (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_9)) { // pulled high when not pressed
@@ -357,6 +385,10 @@ int main(void)
         set_valve_servo( 2, 0);
         set_valve_servo( 3, 0);
         set_valve_servo( 4, 0);
+
+        AX12_TorqueDisable();
+
+        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, GPIO_PIN_RESET);
 
       }
     }
@@ -663,12 +695,22 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
 
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, GPIO_PIN_RESET);
+
   /*Configure GPIO pin : PC13 */
   GPIO_InitStruct.Pin = GPIO_PIN_13;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : PA1 */
+  GPIO_InitStruct.Pin = GPIO_PIN_1;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /*Configure GPIO pin : PB9 */
   GPIO_InitStruct.Pin = GPIO_PIN_9;
