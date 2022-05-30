@@ -20,10 +20,12 @@ const uint16_t arm_limit[4] = {
     5
 };
 
+#define TABLE_SCALE 6
+
 const struct lut {
   uint16_t speed;
   uint16_t angle;
-} mainLut[4][128] = {
+} mainLut[4][128*TABLE_SCALE] = {
     {},
     {},
     {},

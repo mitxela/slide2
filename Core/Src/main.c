@@ -47,8 +47,12 @@ UART_HandleTypeDef huart2;
 /* USER CODE BEGIN PV */
 
 uint8_t calibrateMode = 1;
+uint8_t poweroff_timeout = 0;
+uint8_t AX12_TorqueStatus = 0;
 
-uint8_t timeout = 0;
+#define NOTESTACK_LENGTH 128
+uint8_t notestack[4][NOTESTACK_LENGTH] = {};
+uint8_t nsp[4] = {0};
 
 /* USER CODE END PV */
 
@@ -80,6 +84,52 @@ void flash(){
   }
 }
 
+/*
+  MIDI Channels are zero-indexed, uint8_t chan will be zero-indexed
+  Whistles are indexed from 1, uint8_t n is 1 to 4
+  AX12 IDs are 1 to 8, e.g. whistle 3 is servos 5 and 6
+*/
+
+#define set_valve_servo(n, x) \
+  htim1.Instance->CCR ## n = (x)
+
+void set_valve_open(uint8_t chan) {
+  if (chan==0)      set_valve_servo(1, valve_open[0]);
+  else if (chan==1) set_valve_servo(2, valve_open[1]);
+  else if (chan==2) set_valve_servo(3, valve_open[2]);
+  else if (chan==3) set_valve_servo(4, valve_open[3]);
+}
+
+void set_valve_closed(uint8_t chan) {
+  if (chan==0)      set_valve_servo(1, valve_closed[0]);
+  else if (chan==1) set_valve_servo(2, valve_closed[1]);
+  else if (chan==2) set_valve_servo(3, valve_closed[2]);
+  else if (chan==3) set_valve_servo(4, valve_closed[3]);
+}
+
+#define _set_fan_speed(n, x) \
+  htim3.Instance->CCR ## n = 5000 - (x)
+
+#define enable_fan_motors() \
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, GPIO_PIN_SET)
+
+#define disable_fan_motors() \
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, GPIO_PIN_RESET)
+
+void set_fan_speed(uint8_t n, uint16_t x){
+
+  //*(&(htim3.Instance->CCR1) +4*n) = 5000 - x;
+
+  enable_fan_motors();
+
+  // TODO: keep note of current fan speed, give it a boost if powering up from zero
+
+  if (n==1)      _set_fan_speed(1, x);
+  else if (n==2) _set_fan_speed(2, x);
+  else if (n==3) _set_fan_speed(3, x);
+  else if (n==4) _set_fan_speed(4, x);
+}
+
 #define AX12_Transmit(a) _AX12_Transmit( a, sizeof(a)-1 )
 
 void _AX12_Transmit(uint8_t * data, uint8_t length){
@@ -91,8 +141,6 @@ void _AX12_Transmit(uint8_t * data, uint8_t length){
   data[length] = ~sum;
   HAL_UART_Transmit(&huart2, data, length+1, 100);
 }
-
-uint8_t AX12_TorqueStatus = 0;
 
 void AX12_TorqueEnable(){
   uint8_t torqueEnable[] = { 0xFF, 0xFF, 0xFE, 0x04, 0x03, 0x18, 0x01, 0 };
@@ -129,9 +177,78 @@ void AX12_SetSlidePos(uint8_t id, uint16_t position){
   AX12_Transmit(setPosition);
 }
 
-//void setValveServo(uint16_t pos){
-//  *(&(htim1.Instance->CCR1) + 4) = pos;
-//}
+void setPitch(uint8_t chan, uint8_t note){
+
+  if (note<69 || note >=89) return;
+
+
+  //lookup in table
+  uint16_t x = note*TABLE_SCALE;
+
+  AX12_SetSlidePos( chan*2 +1 , mainLut[chan][ x ].angle );
+  set_fan_speed( chan+1, mainLut[chan][ x ].speed );
+
+}
+
+void whistleNoteOn(uint8_t chan, uint8_t note) {
+
+  if (nsp[chan]>=NOTESTACK_LENGTH) return;
+
+  //push
+  notestack[chan][nsp[chan]++] = note;
+
+  set_valve_open(chan);
+
+  setPitch(chan, note);
+
+}
+
+void whistleNoteOff(uint8_t chan, uint8_t note) {
+
+  // if note in notestack, remove it
+
+  for (uint8_t i=nsp[chan]-1;i>=0;i--) {
+    if (notestack[chan][i]==note) {
+      for (uint8_t j=i; j<nsp[chan];j++ ) {
+        notestack[chan][j]=notestack[chan][j+1];
+      }
+      nsp[chan]--;
+      //break;
+    }
+  }
+
+  if (nsp[chan]>0) {
+    setPitch(chan, notestack[chan][nsp[chan]-1]);
+  } else {
+    set_valve_closed(chan);
+
+    // if all notes off, start timeout
+    if (nsp[0]==0 && nsp[1]==0 && nsp[2]==0 && nsp[3]==0) {
+
+    }
+  }
+
+}
+
+void noteOn(uint8_t chan, uint8_t note, uint8_t vel) {
+  if (chan==4) {
+    //autoNoteOn(note, vel);
+    return;
+  }
+  if (chan>4) return;
+
+  whistleNoteOn(chan, note);
+}
+
+void noteOff(uint8_t chan, uint8_t note) {
+  if (chan==4) {
+    //autoNoteOff(note, vel);
+    return;
+  }
+  if (chan>4) return;
+
+  whistleNoteOff(chan, note);
+}
 
 void processMIDI(uint8_t i) {
   static uint8_t status=0;
@@ -156,12 +273,12 @@ void processMIDI(uint8_t i) {
       switch (status&0xF0) {
 
       case 0x90: //Note on
-        //if (i == 0) noteOff(bytetwo, chan);
-        //else noteOn(bytetwo, i, chan);
+        if (i == 0) noteOff(chan, bytetwo);
+        else noteOn(chan, bytetwo, i);
         break;
 
       case 0x80: //Note off
-        //noteOff(bytetwo, chan);
+        noteOff(chan, bytetwo);
         break;
 
       case 0xE0: //Pitch bend
@@ -172,25 +289,6 @@ void processMIDI(uint8_t i) {
       bytenumber = 1; //running status
     }
   }
-}
-
-#define set_valve_servo(n, x) \
-  htim1.Instance->CCR ## n = (x)
-
-#define _set_fan_speed(n, x) \
-  htim3.Instance->CCR ## n = 5000 - (x)
-
-void set_fan_speed(uint8_t n, uint16_t x){
-  //uint32_t a = &(htim3.Instance->CCR1);
-
-  //*(&(htim3.Instance->CCR1) +4*n) = 5000 - x;
-
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, GPIO_PIN_SET);
-
-  if (n==1) htim3.Instance->CCR1 = 5000 - x;
-  else if (n==2) htim3.Instance->CCR2 = 5000 - x;
-  else if (n==3) htim3.Instance->CCR3 = 5000 - x;
-  else if (n==4) htim3.Instance->CCR4 = 5000 - x;
 }
 
 void processCalByte(uint8_t i) {
@@ -223,7 +321,7 @@ void processCalByte(uint8_t i) {
       set_fan_speed(3, (buf[18]<<8)+buf[19]);
       set_fan_speed(4, (buf[20]<<8)+buf[21]);
 
-      timeout=100;
+      poweroff_timeout=100;
     }
     p=0;
     sum=0;
@@ -274,6 +372,8 @@ void EXTI9_5_IRQHandler(void)
   AX12_SetSlidePos( 3, 0x230 + 145 );
   AX12_SetSlidePos( 5, 0x230 + 45 );
   AX12_SetSlidePos( 7, 0x230 + 145 );
+
+  AX12_TorqueDisable();
 
   __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_9);
 
@@ -353,7 +453,7 @@ int main(void)
 
   //AX12_TorqueEnable();
 
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, GPIO_PIN_RESET);
+  disable_fan_motors();
 
 
   if (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_9)) { // pulled high when not pressed
@@ -371,15 +471,17 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
 
-
-    if (timeout>0) {
+    if (poweroff_timeout>0) {
       HAL_Delay(100);
 
-      if (--timeout==0) {
-        htim3.Instance->CCR1 = 5000; //PA6
-        htim3.Instance->CCR2 = 5000; //PA7
-        htim3.Instance->CCR3 = 5000; //PB0
-        htim3.Instance->CCR4 = 5000; //PB1
+      if (--poweroff_timeout==0) {
+
+        disable_fan_motors();
+
+        _set_fan_speed( 1, 0);
+        _set_fan_speed( 2, 0);
+        _set_fan_speed( 3, 0);
+        _set_fan_speed( 4, 0);
 
         set_valve_servo( 1, 0);
         set_valve_servo( 2, 0);
@@ -387,8 +489,6 @@ int main(void)
         set_valve_servo( 4, 0);
 
         AX12_TorqueDisable();
-
-        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, GPIO_PIN_RESET);
 
       }
     }
