@@ -7,7 +7,7 @@ const uint16_t valve_open[4] = {
 };
 
 const uint16_t valve_closed[4] = {
-    1150,
+    1100,
     1100,
     1220,
     1050

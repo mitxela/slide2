@@ -46,13 +46,19 @@ UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
 
-uint8_t calibrateMode = 1;
-uint8_t poweroff_timeout = 0;
+uint8_t calibrateMode = 0;
 uint8_t AX12_TorqueStatus = 0;
+uint16_t poweroff_timeout = 0;
 
 #define NOTESTACK_LENGTH 128
 uint8_t notestack[4][NOTESTACK_LENGTH] = {};
 uint8_t nsp[4] = {0};
+
+// units of 10ms
+#define FAN_WARMUP_TIME 50
+#define FAN_BOOST_SPEED 1200
+uint16_t fan_target[4]={0};
+uint8_t fan_warmup[4]={0};
 
 /* USER CODE END PV */
 
@@ -122,12 +128,23 @@ void set_fan_speed(uint8_t n, uint16_t x){
 
   enable_fan_motors();
 
-  // TODO: keep note of current fan speed, give it a boost if powering up from zero
-
   if (n==1)      _set_fan_speed(1, x);
   else if (n==2) _set_fan_speed(2, x);
   else if (n==3) _set_fan_speed(3, x);
   else if (n==4) _set_fan_speed(4, x);
+}
+
+void fan_speed_warmup( uint8_t n, uint16_t x ) {
+
+  uint8_t a=n-1;
+  fan_target[a] = x;
+
+  if (fan_warmup[a] < FAN_WARMUP_TIME) {
+    set_fan_speed(n, FAN_BOOST_SPEED);
+  } else {
+    set_fan_speed(n, x);
+  }
+
 }
 
 #define AX12_Transmit(a) _AX12_Transmit( a, sizeof(a)-1 )
@@ -186,7 +203,7 @@ void setPitch(uint8_t chan, uint8_t note){
   uint16_t x = (note-67)*TABLE_SCALE; // +bend
 
   AX12_SetSlidePos( chan*2 +1 , 0x230 + mainLut[chan][ x ].angle );
-  set_fan_speed( chan+1, mainLut[chan][ x ].speed );
+  fan_speed_warmup( chan+1, mainLut[chan][ x ].speed );
 
 }
 
@@ -225,7 +242,7 @@ void whistleNoteOff(uint8_t chan, uint8_t note) {
 
     // if all notes off, start timeout
     if (nsp[0]==0 && nsp[1]==0 && nsp[2]==0 && nsp[3]==0) {
-      poweroff_timeout = 100;
+      poweroff_timeout = 1000;
     }
   }
 
@@ -322,7 +339,7 @@ void processCalByte(uint8_t i) {
       set_fan_speed(3, (buf[18]<<8)+buf[19]);
       set_fan_speed(4, (buf[20]<<8)+buf[21]);
 
-      poweroff_timeout=100;
+      poweroff_timeout=1000;
     }
     p=0;
     sum=0;
@@ -358,10 +375,15 @@ void EXTI9_5_IRQHandler(void)
   nsp[2]=0;
   nsp[3]=0;
 
-  set_fan_speed(1, 0);
-  set_fan_speed(2, 0);
-  set_fan_speed(3, 0);
-  set_fan_speed(4, 0);
+  fan_target[0]=0;
+  fan_target[1]=0;
+  fan_target[2]=0;
+  fan_target[3]=0;
+
+  _set_fan_speed(1, 0);
+  _set_fan_speed(2, 0);
+  _set_fan_speed(3, 0);
+  _set_fan_speed(4, 0);
 
   set_valve_servo(1, valve_closed[0]);
   set_valve_servo(2, valve_closed[1]);
@@ -465,8 +487,9 @@ int main(void)
   disable_fan_motors();
 
 
-  if (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_9)) { // pulled high when not pressed
-    calibrateMode = 0;
+  if (!HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_9)) { // pulled high when not pressed
+    calibrateMode = 1;
+    flash();
   }
 
 
@@ -480,12 +503,33 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
 
+    HAL_Delay(10);
+
+
+
+    for (uint8_t a=0; a<4; a++){
+      if (fan_target[a]>0) {
+        if (fan_warmup[a] < FAN_WARMUP_TIME) {
+          fan_warmup[a]++;
+        } else {
+          set_fan_speed(a+1, fan_target[a]);
+        }
+      } else {
+        if (fan_warmup[a]>0) fan_warmup[a]--;
+      }
+    }
+
+
     if (poweroff_timeout>0) {
-      HAL_Delay(100);
 
       if (--poweroff_timeout==0) {
 
         disable_fan_motors();
+
+        fan_target[0]=0;
+        fan_target[1]=0;
+        fan_target[2]=0;
+        fan_target[3]=0;
 
         _set_fan_speed( 1, 0);
         _set_fan_speed( 2, 0);
