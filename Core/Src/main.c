@@ -183,9 +183,9 @@ void setPitch(uint8_t chan, uint8_t note){
 
 
   //lookup in table
-  uint16_t x = note*TABLE_SCALE;
+  uint16_t x = (note-67)*TABLE_SCALE; // +bend
 
-  AX12_SetSlidePos( chan*2 +1 , mainLut[chan][ x ].angle );
+  AX12_SetSlidePos( chan*2 +1 , 0x230 + mainLut[chan][ x ].angle );
   set_fan_speed( chan+1, mainLut[chan][ x ].speed );
 
 }
@@ -200,6 +200,7 @@ void whistleNoteOn(uint8_t chan, uint8_t note) {
   set_valve_open(chan);
 
   setPitch(chan, note);
+  poweroff_timeout = 0;
 
 }
 
@@ -207,10 +208,10 @@ void whistleNoteOff(uint8_t chan, uint8_t note) {
 
   // if note in notestack, remove it
 
-  for (uint8_t i=nsp[chan]-1;i>=0;i--) {
+  for (int i=nsp[chan]-1; i>=0; i--) {
     if (notestack[chan][i]==note) {
-      for (uint8_t j=i; j<nsp[chan];j++ ) {
-        notestack[chan][j]=notestack[chan][j+1];
+      for (uint8_t j=i; j<nsp[chan]; j++) {
+        notestack[chan][j] = notestack[chan][j+1];
       }
       nsp[chan]--;
       //break;
@@ -224,7 +225,7 @@ void whistleNoteOff(uint8_t chan, uint8_t note) {
 
     // if all notes off, start timeout
     if (nsp[0]==0 && nsp[1]==0 && nsp[2]==0 && nsp[3]==0) {
-
+      poweroff_timeout = 100;
     }
   }
 
@@ -332,14 +333,14 @@ void processCalByte(uint8_t i) {
 void USART1_IRQHandler(void) {
   uint8_t i = LL_USART_ReceiveData8(USART1);
 
-  HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+  //HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
   //hang_error();
 
 
   if (calibrateMode) {
     processCalByte(i);
   } else {
-    //processMIDI(i);
+    processMIDI(i);
   }
 
 }
@@ -348,8 +349,14 @@ void EXTI9_5_IRQHandler(void)
 {
   // MIDI panic / home servos
 
+  HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+
   // Turn off all fans, close valves, set servos to up-down-up-down pattern
   // zero all note memory
+  nsp[0]=0;
+  nsp[1]=0;
+  nsp[2]=0;
+  nsp[3]=0;
 
   set_fan_speed(1, 0);
   set_fan_speed(2, 0);
@@ -361,17 +368,19 @@ void EXTI9_5_IRQHandler(void)
   set_valve_servo(3, valve_closed[2]);
   set_valve_servo(4, valve_closed[3]);
 
+  AX12_SetSlidePos( 1, 0x230 + 45 );
+  AX12_SetSlidePos( 3, 0x230 + 145 );
+  AX12_SetSlidePos( 5, 0x230 + 45 );
+  AX12_SetSlidePos( 7, 0x230 + 145 );
+
   while (!HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_9)); // wait for release
+
+  HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
 
   set_valve_servo(1, 0);
   set_valve_servo(2, 0);
   set_valve_servo(3, 0);
   set_valve_servo(4, 0);
-
-  AX12_SetSlidePos( 1, 0x230 + 45 );
-  AX12_SetSlidePos( 3, 0x230 + 145 );
-  AX12_SetSlidePos( 5, 0x230 + 45 );
-  AX12_SetSlidePos( 7, 0x230 + 145 );
 
   AX12_TorqueDisable();
 
@@ -457,7 +466,7 @@ int main(void)
 
 
   if (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_9)) { // pulled high when not pressed
-    //calibrateMode = 0;
+    calibrateMode = 0;
   }
 
 
