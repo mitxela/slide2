@@ -54,6 +54,8 @@ uint16_t poweroff_timeout = 0;
 uint8_t notestack[4][NOTESTACK_LENGTH] = {};
 uint8_t nsp[4] = {0};
 
+int8_t bend[4] = {0};
+
 // units of 10ms
 #define FAN_WARMUP_TIME 50
 #define FAN_BOOST_SPEED 1200
@@ -200,11 +202,18 @@ void setPitch(uint8_t chan, uint8_t note){
 
 
   //lookup in table
-  uint16_t x = (note-67)*TABLE_SCALE; // +bend
+  uint16_t x = (note-67)*TABLE_SCALE + bend[chan];
 
   AX12_SetSlidePos( chan*2 +1 , 0x230 + mainLut[chan][ x ].angle );
   fan_speed_warmup( chan+1, mainLut[chan][ x ].speed );
 
+}
+
+void whistlePitchBend(uint8_t chan, uint8_t pb) {
+  bend[chan] = pb-64;
+  if (nsp[chan]>0) {
+    setPitch(chan, notestack[chan][nsp[chan]-1]);
+  }
 }
 
 void whistleNoteOn(uint8_t chan, uint8_t note) {
@@ -268,6 +277,19 @@ void noteOff(uint8_t chan, uint8_t note) {
   whistleNoteOff(chan, note);
 }
 
+void pitchBend(uint8_t chan, uint8_t pb) {
+  if (chan==4) {
+    whistlePitchBend(0, pb);
+    whistlePitchBend(1, pb);
+    whistlePitchBend(2, pb);
+    whistlePitchBend(3, pb);
+    return;
+  }
+  if (chan>4) return;
+
+  whistlePitchBend(chan, pb);
+}
+
 void processMIDI(uint8_t i) {
   static uint8_t status=0;
   static uint8_t bytenumber=0;
@@ -300,7 +322,10 @@ void processMIDI(uint8_t i) {
         break;
 
       case 0xE0: //Pitch bend
-        //channels[chan].bend = channels[chan].pbSensitivity * (((i<<7) + bytetwo) - 0x2000);
+        // bend = pbSensitivity * (((i<<7) + bytetwo) - 0x2000);
+
+        // throw away low byte
+        pitchBend( chan, i );
         break;
 
       }
