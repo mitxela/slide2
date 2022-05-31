@@ -82,7 +82,7 @@ def delaySec(sec):
   for i in range(len):
     stream.read(CHUNK, exception_on_overflow=False)
 
-whistle=3
+whistle=2
 
 setpos(whistle,0,1000)
 delaySec(0.5)
@@ -114,11 +114,18 @@ for i in range(250, -step,-step):
 
 off()
 
+x=[]
+y=[]
 print("Position Forwards Backwards Average")
 for i in range(0, 250+step,step):
-  print(i, forwards[i], backwards[i], (forwards[i]+backwards[i])/2.0)
+  a = (forwards[i]+backwards[i])/2.0
+  print(i, forwards[i], backwards[i], a)
+  x.append(i)
+  y.append(a)
 
 
+print("\nx =",x)
+print("y =",y)
 
 
 stream.stop_stream()
