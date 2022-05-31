@@ -54,6 +54,8 @@ uint16_t poweroff_timeout = 0;
 uint8_t notestack[4][NOTESTACK_LENGTH] = {};
 uint8_t nsp[4] = {0};
 
+uint8_t lastnote[4]={72,82,72,82};
+
 int8_t bend[4] = {0};
 
 // units of 10ms
@@ -200,7 +202,6 @@ void setPitch(uint8_t chan, uint8_t note){
 
   if (note<69 || note >=89) return;
 
-
   //lookup in table
   uint16_t x = (note-67)*TABLE_SCALE + bend[chan];
 
@@ -222,6 +223,7 @@ void whistleNoteOn(uint8_t chan, uint8_t note) {
 
   //push
   notestack[chan][nsp[chan]++] = note;
+  lastnote[chan]=note;
 
   set_valve_open(chan);
 
@@ -257,9 +259,60 @@ void whistleNoteOff(uint8_t chan, uint8_t note) {
 
 }
 
+int abs(int x){
+  return  (x<0) ? -x : x ;
+}
+#define isPlaying(chan) nsp[chan]>0
+
+void autoNoteOn(uint8_t note, uint8_t vel) {
+  if (note<69 || note >=89) return;
+
+  uint8_t target =0;
+  uint8_t lowestCost = 255;
+
+  for (uint8_t chan=0; chan<4; chan++) {
+    uint8_t cost = abs(lastnote[chan]-note);
+    if (isPlaying(chan)) cost += 100;
+    if (cost < lowestCost) {
+      lowestCost = cost;
+      target = chan;
+    }
+  }
+  if (lowestCost<255) {
+    whistleNoteOn(target, note);
+  }
+}
+
+uint8_t notestackContains(uint8_t chan, uint8_t note){
+  for (int8_t i=0; i<nsp[chan]; i++) {
+    if (notestack[chan][i] == note) return 1;
+  }
+  return 0;
+}
+
+void autoNoteOff(uint8_t note) {
+
+  // do a first pass to turn off notes that are overridden
+  for (uint8_t chan=0; chan<4; chan++) {
+    if (isPlaying(chan)) {
+      if (lastnote[chan] != note && notestackContains(chan, note)) {
+        whistleNoteOff(chan, note);
+        return;
+      }
+    }
+  }
+
+  for (uint8_t chan=0; chan<4; chan++) {
+    if (isPlaying(chan) && lastnote[chan]==note) {
+      whistleNoteOff(chan, note);
+    }
+  }
+}
+
+
 void noteOn(uint8_t chan, uint8_t note, uint8_t vel) {
   if (chan==4) {
-    //autoNoteOn(note, vel);
+    autoNoteOn(note, vel);
     return;
   }
   if (chan>4) return;
@@ -269,7 +322,7 @@ void noteOn(uint8_t chan, uint8_t note, uint8_t vel) {
 
 void noteOff(uint8_t chan, uint8_t note) {
   if (chan==4) {
-    //autoNoteOff(note, vel);
+    autoNoteOff(note);
     return;
   }
   if (chan>4) return;
@@ -289,6 +342,7 @@ void pitchBend(uint8_t chan, uint8_t pb) {
 
   whistlePitchBend(chan, pb);
 }
+
 
 void processMIDI(uint8_t i) {
   static uint8_t status=0;
@@ -420,6 +474,11 @@ void EXTI9_5_IRQHandler(void)
   AX12_SetSlidePos( 5, 0x230 + 45 );
   AX12_SetSlidePos( 7, 0x230 + 145 );
 
+  lastnote[0] = 72;
+  lastnote[0] = 82;
+  lastnote[0] = 72;
+  lastnote[0] = 82;
+
   while (!HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_9)); // wait for release
 
   HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
@@ -510,7 +569,6 @@ int main(void)
   //AX12_TorqueEnable();
 
   disable_fan_motors();
-
 
   if (!HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_9)) { // pulled high when not pressed
     calibrateMode = 1;
