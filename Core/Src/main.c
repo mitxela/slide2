@@ -570,11 +570,11 @@ int main(void)
 
   disable_fan_motors();
 
+  HAL_Delay(500); //Give debounce cap a chance to charge
   if (!HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_9)) { // pulled high when not pressed
     calibrateMode = 1;
-    flash();
   }
-
+  uint8_t calFlash=0;
 
   /* USER CODE END 2 */
 
@@ -589,6 +589,12 @@ int main(void)
     HAL_Delay(10);
 
 
+    if (calibrateMode) {
+      if (++calFlash == 10) {
+        calFlash=0;
+        HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+      }
+    }
 
     for (uint8_t a=0; a<4; a++){
       if (fan_target[a]>0) {
