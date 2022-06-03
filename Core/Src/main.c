@@ -161,6 +161,7 @@ void _AX12_Transmit(uint8_t * data, uint8_t length){
   }
   data[length] = ~sum;
   HAL_UART_Transmit(&huart2, data, length+1, 100);
+  HAL_UART_Transmit(&huart2, data, length+1, 100);
 }
 
 void AX12_TorqueEnable(){
