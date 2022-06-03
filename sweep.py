@@ -82,7 +82,7 @@ def delaySec(sec):
   for i in range(len):
     stream.read(CHUNK, exception_on_overflow=False)
 
-whistle=2
+whistle=1
 
 setpos(whistle,0,1000)
 delaySec(0.5)

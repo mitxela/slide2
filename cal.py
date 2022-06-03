@@ -1,7 +1,7 @@
 #!/bin/env python3
 
 import serial
-s = serial.Serial('/dev/ttyUSB1', baudrate=31250)
+s = serial.Serial('/dev/ttyUSB2', baudrate=31250)
 
 # valves, arms, fan motors
 def w( v1,v2,v3,v4, a1,a2,a3,a4, f1,f2,f3,f4):
@@ -17,7 +17,7 @@ vclosed = [1150,1100,1220,1050]
 
 def setspeed(whistle, angle):
   if whistle==1:
-    return int( 650 + ((angle/250)**1.8)*520 )
+    return int( 650 + ((angle/250)**2)*600 )
   if whistle==2:
     return int( 640 + ((angle/250)**1.5)*450 )
   if whistle==3:
