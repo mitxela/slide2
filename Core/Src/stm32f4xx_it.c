@@ -47,6 +47,15 @@
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN PFP */
 
+#define RESET_ON_FAULT
+
+#ifdef RESET_ON_FAULT
+  #define fault_handler() NVIC_SystemReset()
+#else
+  #define fault_handler()
+#endif
+
+
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -85,6 +94,7 @@ void HardFault_Handler(void)
 {
   /* USER CODE BEGIN HardFault_IRQn 0 */
 
+	fault_handler();
   /* USER CODE END HardFault_IRQn 0 */
   while (1)
   {
@@ -100,6 +110,7 @@ void MemManage_Handler(void)
 {
   /* USER CODE BEGIN MemoryManagement_IRQn 0 */
 
+	fault_handler();
   /* USER CODE END MemoryManagement_IRQn 0 */
   while (1)
   {
@@ -115,6 +126,7 @@ void BusFault_Handler(void)
 {
   /* USER CODE BEGIN BusFault_IRQn 0 */
 
+	fault_handler();
   /* USER CODE END BusFault_IRQn 0 */
   while (1)
   {
@@ -130,6 +142,7 @@ void UsageFault_Handler(void)
 {
   /* USER CODE BEGIN UsageFault_IRQn 0 */
 
+	fault_handler();
   /* USER CODE END UsageFault_IRQn 0 */
   while (1)
   {
@@ -144,6 +157,7 @@ void UsageFault_Handler(void)
 void SVC_Handler(void)
 {
   /* USER CODE BEGIN SVCall_IRQn 0 */
+
 
   /* USER CODE END SVCall_IRQn 0 */
   /* USER CODE BEGIN SVCall_IRQn 1 */
