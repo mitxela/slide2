@@ -263,7 +263,7 @@ void whistleNoteOff(uint8_t chan, uint8_t note) {
 int abs(int x){
   return  (x<0) ? -x : x ;
 }
-#define isPlaying(chan) nsp[chan]>0
+#define isPlaying(chan) (nsp[chan]>0)
 
 void autoNoteOn(uint8_t note, uint8_t vel) {
   if (note<69 || note >=89) return;
@@ -281,6 +281,12 @@ void autoNoteOn(uint8_t note, uint8_t vel) {
   }
   if (lowestCost<255) {
     whistleNoteOn(target, note);
+
+    //turn all fans on
+    if (fan_warmup[0] < FAN_WARMUP_TIME ) fan_speed_warmup( 1, mainLut[0][ 9*TABLE_SCALE ].speed );
+    if (fan_warmup[1] < FAN_WARMUP_TIME ) fan_speed_warmup( 2, mainLut[1][ 9*TABLE_SCALE ].speed );
+    if (fan_warmup[2] < FAN_WARMUP_TIME ) fan_speed_warmup( 3, mainLut[2][ 9*TABLE_SCALE ].speed );
+    if (fan_warmup[3] < FAN_WARMUP_TIME ) fan_speed_warmup( 4, mainLut[3][ 9*TABLE_SCALE ].speed );
   }
 }
 
