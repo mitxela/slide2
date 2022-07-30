@@ -141,7 +141,14 @@ void set_fan_speed(uint8_t n, uint16_t x){
 void fan_speed_warmup( uint8_t n, uint16_t x ) {
 
   uint8_t a=n-1;
+
+
+  if (fan_target[a]+300 < x && fan_warmup[a]>=FAN_WARMUP_TIME) {
+	  fan_warmup[a]-=FAN_WARMUP_TIME/2;
+  }
+
   fan_target[a] = x;
+
 
   if (fan_warmup[a] < FAN_WARMUP_TIME) {
     set_fan_speed(n, FAN_BOOST_SPEED);
