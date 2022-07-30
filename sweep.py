@@ -21,8 +21,8 @@ devID = -1
 
 for i in range(0, numdevices):
   if (p.get_device_info_by_host_api_device_index(0, i).get('maxInputChannels')) > 0:
-    #print("Input Device id ", i, " - ", p.get_device_info_by_host_api_device_index(0, i).get('name'))
-    if p.get_device_info_by_host_api_device_index(0, i).get('name') == "RØDE VideoMic NTG: USB Audio (hw:1,0)":
+    print("Input Device id ", i, " - ", p.get_device_info_by_host_api_device_index(0, i).get('name'))
+    if p.get_device_info_by_host_api_device_index(0, i).get('name') == "RØDE VideoMic NTG: USB Audio (hw:1,0)" or p.get_device_info_by_host_api_device_index(0, i).get('name') == "Desktop Microphone (RÃ˜DE VideoM":
       devID = i
 
 if devID==-1:
@@ -82,7 +82,7 @@ def delaySec(sec):
   for i in range(len):
     stream.read(CHUNK, exception_on_overflow=False)
 
-whistle=1
+whistle=3
 
 setpos(whistle,0,1000)
 delaySec(0.5)

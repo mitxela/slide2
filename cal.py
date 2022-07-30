@@ -1,7 +1,7 @@
 #!/bin/env python3
 
 import serial
-s = serial.Serial('/dev/ttyUSB2', baudrate=31250)
+s = serial.Serial('COM6', baudrate=31250)
 
 # valves, arms, fan motors
 def w( v1,v2,v3,v4, a1,a2,a3,a4, f1,f2,f3,f4):
@@ -17,13 +17,13 @@ vclosed = [1150,1100,1220,1050]
 
 def setspeed(whistle, angle):
   if whistle==1:
-    return int( 650 + ((angle/250)**2)*600 )
+    return int( 730 + ((angle/250)**1.8)*630 )
   if whistle==2:
-    return int( 640 + ((angle/250)**1.5)*450 )
+    return int( 730 + ((angle/250)**1.8)*630 )
   if whistle==3:
-    return int( 640 + ((angle/250)**1.5)*450 ) # not measured properly yet
+    return int( 670 + ((angle/250)**2.1)*520 )
   if whistle==4:
-    return int( 610 + ((angle/250)**1.8)*550 )
+    return int( 680 + ((angle/250)**2.2)*450 )
 
 
 def setpos(whistle, angle, speed=-1):
