@@ -1,0 +1,240 @@
+<!doctype html>
+
+<style>
+canvas{padding:5px}
+</style>
+
+<div style='max-width:800px;margin:auto;'>
+<h2>~ Slide Whistle Orchestrion Simulator ~</h2>
+
+<fieldset id=startForm>
+<legend>Enable MIDI input</legend>
+This uses Web MIDI, so it will only work in Chrome, or possibly Firefox with the Jazz MIDI plugin.<p>
+You may need to install a MIDI loopback device to connect your MIDI editor / DAW. "loopMIDI" is an option on windows (basically a modern version of MIDI Yoke)<p>
+Select your MIDI device here: <select id=webMidiSelect></select> and then click <button onclick='start()'>start</button><p>
+</fieldset>
+
+<div id=canvi></div>
+
+<h3>Notes</h3>
+<p>The pitch range for each whistle is from A5 to E7 (which is only 1&half; octaves). The text goes red if you go outside this range.
+<p>The four whistles are on midi channels 1, 2, 3 and 4.
+<p>Channel 5 is the prototype "automatic" polyphonic mode to make realtime playing with a keyboard easier.
+<p>The portamento amount is approximate, the final thing may be less responsive.
+<p>The articulation is also approximate. Since there is no attack, if you have one note starting exactly after another note ends, they will blur together. I made a CAL script to automatically fix this stuff (on the slide whistle page, and in the github repo)
+<p>
+
+
+<script>
+var audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+audioCtx.suspend()
+
+numWhistles = 4
+
+attackTime= 0.02
+portaTime = 0.05
+w = 80
+h = 120
+
+function newWhistle(){
+
+  var noteStack=[], position=69, playing=false;
+  var osc = audioCtx.createOscillator()
+  osc.type = 'triangle';
+
+  var gain = audioCtx.createGain();
+  gain.gain.setValueAtTime(0, audioCtx.currentTime)
+
+  osc.connect(gain)
+  gain.connect(audioCtx.destination);
+
+  osc.start();
+
+
+  let canvas = document.createElement('canvas');
+  canvas.width=w
+  canvas.height=h
+  let ctx = canvas.getContext('2d')
+  ctx.fillStyle='black'
+
+  canvi.append(canvas)
+
+  function draw(){
+    ctx.clearRect(0,0,w,h)
+    let f = osc.frequency.value
+    let angle = Math.log(f-380) *Math.PI /Math.log(1400)    +Math.PI/2;
+    let cos = Math.cos(angle), sin = Math.sin(angle)
+
+    ctx.fillText(Math.round(f*100)/100,5,115)
+    ctx.beginPath()
+    ctx.moveTo(35,10-gain.gain.value*18)
+    ctx.lineTo(45,10-gain.gain.value*18)
+    ctx.moveTo(40,10)
+    ctx.lineTo(40,100)
+    ctx.lineTo(40+40*cos, 100+40*sin)
+    ctx.lineTo(40, 100+40*sin+40*sin)
+    ctx.lineTo(40-40*cos, 100+40*sin)
+    ctx.lineTo(40,100)
+    ctx.stroke()
+
+    //osc.detune.setTargetAtTime( (Math.random()-0.5)*wobble, audioCtx.currentTime,0)
+  }
+
+  function setAmp(a){
+    gain.gain.setTargetAtTime(a, audioCtx.currentTime, attackTime)
+    playing = a>0
+  }
+
+  function setFrequency(note){
+    if (note<69 || note >=89) {
+      ctx.fillStyle='red'
+      setAmp(0.05)
+      return
+    }
+    ctx.fillStyle='black'
+    osc.frequency.setTargetAtTime( 440*Math.pow(2, (note-69)/12), audioCtx.currentTime, portaTime)
+    position = note;
+  }
+
+  function noteOn(note, vel) {
+    noteStack.push(note)
+
+    setAmp(0.2)
+    setFrequency(note)
+  }
+  function noteOff(note) {
+    if (noteStack.indexOf(note)!=-1)
+      noteStack.splice(noteStack.indexOf(note),1)
+
+    if (noteStack.length)
+      setFrequency(noteStack[noteStack.length-1])
+    else {
+      setAmp(0)
+    }
+  }
+
+  return {gain, noteOn, noteOff, draw, getNote:()=>position, isPlaying:()=>playing, noteStack}
+}
+
+whistle = []
+
+function draw(){
+  for (let w of whistle)
+    w.draw()
+
+  window.requestAnimationFrame(draw)
+}
+
+function start() {
+  for (let i=0;i<numWhistles;i++)
+    whistle.push( newWhistle() )
+  audioCtx.resume()
+  draw()
+  document.querySelector('#startForm').remove()
+}
+
+
+function autoNoteOn(note, vel){
+  if (note<69 || note >=89) return
+  let target=0, lowestCost = 999;
+  for (let i=0;i<numWhistles;i++) {
+    let w = whistle[i]
+
+    let cost = Math.abs( w.getNote() - note ) + 100*w.isPlaying()
+    if (cost < lowestCost) {
+      lowestCost = cost
+      target = i
+    }
+
+  }
+  if (lowestCost<999) {
+    whistle[target].noteOn(note, vel)
+  }
+}
+function autoNoteOff(note){
+  //TODO: If a whistle gets turned off, but others still have more than one note in their stack, we should transfer from one stack to another
+
+
+  // do a first pass to turn off notes that are overridden
+  for (let w of whistle) {
+    if (w.isPlaying()){
+      if ( w.getNote()!=note && w.noteStack.indexOf(note)!=-1 ) {
+        w.noteOff(note)
+        return
+      }
+    }
+  }
+
+  for (let w of whistle) {
+    if (w.isPlaying() && w.getNote()==note){
+      w.noteOff(note)
+      break
+    }
+  }
+}
+
+
+function noteon(chan, note, vel) {
+  if (chan==4){
+    autoNoteOn(note, vel)
+    return
+  }
+  if (!whistle[chan]) return;
+  whistle[chan].noteOn(note, vel)
+}
+function noteoff(chan, note) {
+  if (chan==4){
+    autoNoteOff(note)
+    return
+  }
+  if (!whistle[chan]) return;
+  whistle[chan].noteOff(note)
+}
+
+function midiMessageReceived(d){
+
+  let status=d.data[0] &0xF0;
+  let chan = d.data[0] &0x0F;
+
+  switch (status){
+    case 0x90:
+      if (d.data[2]==0) noteoff(chan, d.data[1])
+      else noteon(chan, d.data[1], d.data[2])
+    break;
+
+    case 0x80: noteoff(chan, d.data[1]); break;
+  }
+
+}
+
+
+
+midiIn=null;
+function populateMIDIInSelect() {
+  selectMIDI.options.length = 0;
+
+  midiAccess.inputs.forEach( function(i) {
+    selectMIDI.appendChild(new Option(i.name,i.id,midiIn==i,midiIn==i));
+  });
+
+  if (midiIn&&midiIn.state=="disconnected") selectMIDI.onchange();
+}
+
+window.addEventListener("load",function() {
+  if (navigator.requestMIDIAccess) navigator.requestMIDIAccess().then( function(midi) {
+
+    midiAccess = midi;
+    selectMIDI=document.getElementById("webMidiSelect");
+    (midi.onstatechange = populateMIDIInSelect)();
+    (selectMIDI.onchange = function() {
+       if (midiIn) midiIn.onmidimessage = null;
+
+       if (selectMIDI.options.length) midiIn = midiAccess.inputs.get(selectMIDI[selectMIDI.selectedIndex].value);
+       if (midiIn) midiIn.onmidimessage = midiMessageReceived;
+    })();
+  });
+});
+
+
+
+</script>
